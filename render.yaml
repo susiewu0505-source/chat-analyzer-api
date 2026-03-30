@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: chat-analyzer-api
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ALLOWED_ORIGINS
+        value: https://stalwart-licorice-1cafa8.netlify.app,http://localhost:3000
+    plan: free

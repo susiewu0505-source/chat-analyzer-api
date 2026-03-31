@@ -42,7 +42,13 @@ def parse_ndjson(filepath):
                                 parts.append(shortcuts[0])
                     text = "".join(parts).strip()
                     if text:
-                        msgs.append({"text": text, "author": r.get("authorName", {}).get("simpleText", ""), "timeMs": ms, "type": "chat", "amount": 0})
+                        msgs.append({
+                            "text": text,
+                            "author": r.get("authorName", {}).get("simpleText", ""),
+                            "timeMs": ms,
+                            "type": "chat",
+                            "amount": 0
+                        })
     return sorted(msgs, key=lambda m: m["timeMs"])
 
 @app.get("/")
@@ -60,7 +66,8 @@ async def download_chat(request: Request):
         out = str(Path(tmp) / "chat")
         try:
             subprocess.run(
-                [sys.executable, "-m", "yt_dlp", "--skip-download", "--write-subs", "--sub-langs", "live_chat", "-o", out, url],
+                [sys.executable, "-m", "yt_dlp", "--skip-download", "--write-subs",
+                 "--sub-langs", "live_chat", "-o", out, url],
                 capture_output=True, text=True, timeout=120
             )
         except subprocess.TimeoutExpired:
@@ -71,4 +78,9 @@ async def download_chat(request: Request):
         msgs = parse_ndjson(str(files[0]))
         if not msgs:
             raise HTTPException(status_code=404, detail="弹幕为空")
-        return {"videoId": vid, "title": files[0].name.replace(".live_chat.json", ""), "messageCount": len(msgs), "messages": msgs}
+        return {
+            "videoId": vid,
+            "title": files[0].name.replace(".live_chat.json", ""),
+            "messageCount": len(msgs),
+            "messages": msgs
+        }

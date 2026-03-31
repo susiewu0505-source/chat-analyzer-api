@@ -1,16 +1,11 @@
 import os, json, re, sys, tempfile, subprocess
 from pathlib import Path
-from typing import Optional
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 
 app = FastAPI()
 ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 app.add_middleware(CORSMiddleware, allow_origins=ALLOWED_ORIGINS, allow_methods=["GET","POST"], allow_headers=["*"])
-
-class AnalyzeRequest(BaseModel):
-    url: str
 
 def extract_video_id(url):
     for pat in [r"[?&]v=([a-zA-Z0-9_-]{11})", r"youtu\.be/([a-zA-Z0-9_-]{11})"]:
@@ -37,9 +32,17 @@ def parse_ndjson(filepath):
                 r = item.get("liveChatTextMessageRenderer")
                 if r:
                     runs = r.get("message", {}).get("runs", [])
-                    text = "".join(run.get("text","") or (run.get("emoji",{}).get("shortcuts",[""])[0] if run.get("emoji",{}).get("shortcuts") else "") for run in runs).strip()
+                    parts = []
+                    for run in runs:
+                        if "text" in run:
+                            parts.append(run["text"])
+                        elif "emoji" in run:
+                            shortcuts = run["emoji"].get("shortcuts", [])
+                            if shortcuts:
+                                parts.append(shortcuts[0])
+                    text = "".join(parts).strip()
                     if text:
-                        msgs.append({"text": text, "author": r.get("authorName",{}).get("simpleText",""), "timeMs": ms, "type": "chat", "amount": 0})
+                        msgs.append({"text": text, "author": r.get("authorName", {}).get("simpleText", ""), "timeMs": ms, "type": "chat", "amount": 0})
     return sorted(msgs, key=lambda m: m["timeMs"])
 
 @app.get("/")
@@ -47,15 +50,17 @@ def health():
     return {"status": "ok"}
 
 @app.post("/api/chat")
-def download_chat(req: AnalyzeRequest):
-    vid = extract_video_id(req.url)
+async def download_chat(request: Request):
+    body = await request.json()
+    url = body.get("url", "")
+    vid = extract_video_id(url)
     if not vid:
         raise HTTPException(status_code=400, detail="无法解析YouTube URL")
     with tempfile.TemporaryDirectory() as tmp:
         out = str(Path(tmp) / "chat")
         try:
             subprocess.run(
-                [sys.executable, "-m", "yt_dlp", "--skip-download", "--write-subs", "--sub-langs", "live_chat", "-o", out, req.url],
+                [sys.executable, "-m", "yt_dlp", "--skip-download", "--write-subs", "--sub-langs", "live_chat", "-o", out, url],
                 capture_output=True, text=True, timeout=120
             )
         except subprocess.TimeoutExpired:
@@ -66,4 +71,4 @@ def download_chat(req: AnalyzeRequest):
         msgs = parse_ndjson(str(files[0]))
         if not msgs:
             raise HTTPException(status_code=404, detail="弹幕为空")
-        return {"videoId": vid, "title": files[0].name.replace(".live_chat.json",""), "messageCount": len(msgs), "messages": msgs}
+        return {"videoId": vid, "title": files[0].name.replace(".live_chat.json", ""), "messageCount": len(msgs), "messages": msgs}
